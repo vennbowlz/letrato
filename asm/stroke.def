@@ -1,0 +1,13 @@
+LIBRARY stroke.dll
+EXPORTS
+    sample_isr
+    sample_drain
+    sample_reset
+    sample_overflow
+    stroke_path_length
+    stroke_centroid
+    stroke_resample
+    stroke_indicative_angle
+    stroke_rotate
+    stroke_score
+    stroke_evaluate
