@@ -43,6 +43,9 @@ $(BUILD)/LetraTo.exe: $(OBJS) $(BUILD)/stroke.dll
 	$(CXX) -m32 $(OBJS) -L$(BUILD) -lstroke $(SDL_LIBS) -mwindows -static-libgcc -static-libstdc++ -o $@
 ifdef SDL2_DIR
 	cp $(SDL2_DIR)/bin/SDL2.dll $(BUILD)/
+else
+	@cp /mingw32/bin/SDL2.dll $(BUILD)/ 2>/dev/null || true
+	@cp /mingw32/bin/libwinpthread-1.dll $(BUILD)/ 2>/dev/null || true
 endif
 
 # ---- tests -------------------------------------------------------------------

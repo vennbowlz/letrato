@@ -106,12 +106,59 @@ std::map<char, std::vector<Glyph>> buildVariants() {
     std::map<char, std::vector<Glyph>> v;
     // A: one stroke up the left leg and down the right, then the bar
     v['A'] = {{S(.15f, 1).L(.50f, 0).L(.85f, 1), S(.30f, .62f).L(.70f, .62f)}};
-    // M: left side down first, then the middle and right side
-    v['M'] = {{S(.12f, 0).L(.12f, 1), S(.12f, 0).L(.50f, .62f).L(.88f, 0).L(.88f, 1)}};
-    // N: left side down first, then the diagonal and up the right
-    v['N'] = {{S(.20f, 0).L(.20f, 1), S(.20f, 0).L(.80f, 1).L(.80f, 0)}};
-    // Y: both arms meet in the middle, then the stem
-    v['Y'] = {{S(.18f, 0).L(.50f, .50f), S(.82f, 0).L(.50f, .50f), S(.50f, .50f).L(.50f, 1)}};
+    // B: 2 strokes (stem, then both lobes continuous) or 1 continuous stroke (down, up, both lobes)
+    v['B'] = {{S(.22f, 0).L(.22f, 1),
+               S(.22f, 0).L(.50f, 0).A(.50f, .25f, .25f, .25f, -90, 90).L(.22f, .50f)
+                   .L(.52f, .50f).A(.52f, .75f, .28f, .25f, -90, 90).L(.22f, 1)},
+              {S(.22f, 0).L(.22f, 1).L(.22f, 0).L(.50f, 0).A(.50f, .25f, .25f, .25f, -90, 90).L(.22f, .50f)
+                   .L(.52f, .50f).A(.52f, .75f, .28f, .25f, -90, 90).L(.22f, 1)}};
+    // D: 1 continuous stroke (down, up, lobe)
+    v['D'] = {{S(.22f, 0).L(.22f, 1).L(.22f, 0).L(.40f, 0).A(.40f, .50f, .40f, .50f, -90, 90).L(.22f, 1)}};
+    // K: 3 strokes (stem, upper diagonal in, lower diagonal out)
+    v['K'] = {{S(.22f, 0).L(.22f, 1), S(.80f, 0).L(.22f, .58f), S(.22f, .58f).L(.82f, 1)}};
+    // M: left side down first, then the middle and right side, or 3 separate strokes
+    v['M'] = {{S(.12f, 0).L(.12f, 1), S(.12f, 0).L(.50f, .62f).L(.88f, 0).L(.88f, 1)},
+              {S(.12f, 0).L(.12f, 1), S(.12f, 0).L(.50f, .62f).L(.88f, 0), S(.88f, 0).L(.88f, 1)}};
+    // N: left side down first, then the diagonal and up the right, or 3 separate strokes
+    v['N'] = {{S(.20f, 0).L(.20f, 1), S(.20f, 0).L(.80f, 1).L(.80f, 0)},
+              {S(.20f, 0).L(.20f, 1), S(.20f, 0).L(.80f, 1), S(.80f, 1).L(.80f, 0)}};
+    // P: 1 continuous stroke (down, up, lobe)
+    v['P'] = {{S(.22f, 0).L(.22f, 1).L(.22f, 0).L(.48f, 0).A(.48f, .27f, .30f, .27f, -90, 90).L(.22f, .54f)}};
+    // R: 2 strokes (stem+lobe, then leg)
+    v['R'] = {{S(.22f, 0).L(.22f, 1).L(.22f, 0).L(.48f, 0).A(.48f, .27f, .30f, .27f, -90, 90).L(.22f, .54f),
+               S(.45f, .54f).L(.82f, 1)}};
+    // Y: 2-stroke alternatives (both arm-first and stem-continuous orders,
+    // straight diagonal styles, V-shape + stem, high/low intersections, and 3-stroke).
+    v['Y'] = {
+        // Left arm + stem continuous, then right arm
+        {S(.18f, 0).L(.50f, .50f).L(.50f, 1), S(.82f, 0).L(.50f, .50f)},
+        // Right arm + stem continuous first, then left arm
+        {S(.82f, 0).L(.50f, .50f).L(.50f, 1), S(.18f, 0).L(.50f, .50f)},
+        // Right arm first, then left arm + stem continuous
+        {S(.82f, 0).L(.50f, .50f), S(.18f, 0).L(.50f, .50f).L(.50f, 1)},
+        // Two straight lines: long diagonal from top-right to bottom-center, left arm to center
+        {S(.82f, 0).L(.50f, 1), S(.18f, 0).L(.50f, .50f)},
+        {S(.18f, 0).L(.50f, .50f), S(.82f, 0).L(.50f, 1)},
+        // Two straight lines: long diagonal from top-left to bottom-center, right arm to center
+        {S(.18f, 0).L(.50f, 1), S(.82f, 0).L(.50f, .50f)},
+        {S(.82f, 0).L(.50f, .50f), S(.18f, 0).L(.50f, 1)},
+        // Slanted print Y: full diagonal top-right to bottom-left + left arm
+        {S(.82f, 0).L(.35f, 1), S(.18f, 0).L(.50f, .50f)},
+        {S(.18f, 0).L(.50f, .50f), S(.82f, 0).L(.35f, 1)},
+        // Slanted print Y: full diagonal top-left to bottom-right + right arm
+        {S(.18f, 0).L(.65f, 1), S(.82f, 0).L(.50f, .50f)},
+        // Upper V-shape, then vertical stem (and vice-versa)
+        {S(.18f, 0).L(.50f, .50f).L(.82f, 0), S(.50f, .50f).L(.50f, 1)},
+        {S(.50f, .50f).L(.50f, 1), S(.18f, 0).L(.50f, .50f).L(.82f, 0)},
+        // High intersection (y = 0.42)
+        {S(.18f, 0).L(.50f, .42f), S(.82f, 0).L(.50f, .42f).L(.50f, 1)},
+        {S(.18f, 0).L(.50f, .42f).L(.50f, 1), S(.82f, 0).L(.50f, .42f)},
+        // Low intersection (y = 0.60)
+        {S(.18f, 0).L(.50f, .60f), S(.82f, 0).L(.50f, .60f).L(.50f, 1)},
+        {S(.18f, 0).L(.50f, .60f).L(.50f, 1), S(.82f, 0).L(.50f, .60f)},
+        // 3-stroke variant: left arm, right arm, vertical stem
+        {S(.18f, 0).L(.50f, .50f), S(.82f, 0).L(.50f, .50f), S(.50f, .50f).L(.50f, 1)}
+    };
     // T and E/F: bar(s) before the down stroke
     v['T'] = {{S(.50f, 0).L(.50f, 1), S(.15f, 0).L(.85f, 0)}};
     v['E'] = {{S(.78f, 0).L(.25f, 0).L(.25f, 1).L(.78f, 1), S(.25f, .50f).L(.68f, .50f)}};
@@ -120,6 +167,13 @@ std::map<char, std::vector<Glyph>> buildVariants() {
     v['1'] = {{S(.52f, 0).L(.52f, 1)}};
     // 4 as one open stroke: down, across, then the stem
     v['4'] = {{S(.62f, 0).L(.14f, .68f).L(.86f, .68f), S(.62f, .30f).L(.62f, 1)}};
+    // 5 as two strokes: down-stem and belly first, then the top horizontal bar
+    v['5'] = {{S(.30f, 0).L(.26f, .45f).A(.50f, .68f, .30f, .32f, -130, 150), S(.30f, 0).L(.76f, 0)}};
+    // 8 starting at the top-center
+    v['8'] = {{arc(.50f, .25f, .25f, .25f, -90, -270).A(.50f, .75f, .30f, .25f, -90, 270)
+                  .A(.50f, .25f, .25f, .25f, 90, -90)},
+              // two stacked circles ("snowman" 8)
+              {arc(.50f, .25f, .25f, .25f, -90, -450), arc(.50f, .75f, .30f, .25f, -90, -450)}};
     return v;
 }
 
