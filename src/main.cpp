@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <numeric>
 #include <string>
 #include <vector>
 
@@ -283,19 +284,121 @@ void App::evaluate() {
     evaluateRequested_ = false;
     if (penDown_) penUp((int)mouseX_, (int)mouseY_);
 
-    // Path combination: every stroke of this attempt, end to end.
-    std::vector<Point> path;
-    for (const Stroke& s : strokes_) path.insert(path.end(), s.begin(), s.end());
+    // Filter out accidental micro-clicks/noise strokes
+    std::vector<Stroke> validStrokes;
+    for (const Stroke& s : strokes_) {
+        if (s.size() >= 2 && stroke_path_length(s.data(), (int)s.size()) >= 3.0f) {
+            validStrokes.push_back(s);
+        }
+    }
+    if (validStrokes.empty()) validStrokes = strokes_;
 
-    float length = path.size() >= 2 ? stroke_path_length(path.data(), (int)path.size()) : 0;
-    if (length < kMinPathPx) { clearCanvas(); return; }
+    float totalLength = 0;
+    for (const Stroke& s : validStrokes) {
+        if (s.size() >= 2) totalLength += stroke_path_length(s.data(), (int)s.size());
+    }
+    if (totalLength < kMinPathPx) { clearCanvas(); return; }
 
-    // Score against every accepted stroke order; the best match counts.
-    lastScore_ = 0;
+    // Pre-calculate template paths for all accepted variants
+    std::vector<std::vector<Point>> tmpls;
     for (const Glyph& variant : glyphVariants(kSymbols[symbol_])) {
-        std::vector<Point> tmpl = glyphPath(variant, 0, 0, kCanvasS, kGlyphMargin);
-        lastScore_ = std::max(lastScore_, stroke_evaluate(path.data(), (int)path.size(),
-                                                          tmpl.data(), (int)tmpl.size()));
+        tmpls.push_back(glyphPath(variant, 0, 0, kCanvasS, kGlyphMargin));
+    }
+
+    lastScore_ = 0;
+
+    char symbolChar = kSymbols[symbol_];
+    bool isDigit = (symbolChar >= '0' && symbolChar <= '9');
+    bool isEight = (symbolChar == '8');
+
+    // 8 is drawn many ways: accept the mirrored direction (start top-left,
+    // go right first) and, for closed single-loop templates, any start point.
+    if (isEight) {
+        std::vector<std::vector<Point>> extra;
+        for (const auto& t : tmpls) {
+            std::vector<Point> m = t;
+            for (Point& p : m) p.x = kCanvasS - p.x;
+            extra.push_back(m);
+        }
+        tmpls.insert(tmpls.end(), extra.begin(), extra.end());
+        extra.clear();
+        for (const auto& t : tmpls) {
+            size_t n = t.size();
+            if (n < 8 || std::hypot(t[0].x - t[n - 1].x, t[0].y - t[n - 1].y) > 0.06f * kCanvasS) continue;
+            std::vector<Point> loop(t.begin(), t.end() - 1);
+            for (int k = 1; k < 16; ++k) {
+                size_t s = loop.size() * k / 16;
+                std::vector<Point> sh(loop.begin() + s, loop.end());
+                sh.insert(sh.end(), loop.begin(), loop.begin() + s + 1);
+                extra.push_back(sh);
+            }
+        }
+        tmpls.insert(tmpls.end(), extra.begin(), extra.end());
+    }
+
+    // Order-independent and direction-flexible evaluation:
+    // Permute stroke sequence.
+    // For letters and for '8', allow forward/reverse directions for each stroke.
+    // For numbers other than '8', enforce strict stroke direction (forward only).
+    int nStrokes = (int)validStrokes.size();
+    if (nStrokes <= 4) {
+        std::vector<int> perm(nStrokes);
+        std::iota(perm.begin(), perm.end(), 0);
+        int maxMask = (isDigit && !isEight) ? 1 : (1 << nStrokes);
+
+        do {
+            for (int mask = 0; mask < maxMask; ++mask) {
+                std::vector<Point> cand;
+                for (int i = 0; i < nStrokes; ++i) {
+                    const Stroke& s = validStrokes[perm[i]];
+                    if (mask & (1 << i)) {
+                        cand.insert(cand.end(), s.rbegin(), s.rend());
+                    } else {
+                        cand.insert(cand.end(), s.begin(), s.end());
+                    }
+                }
+                for (const auto& tmpl : tmpls) {
+                    float sc = stroke_evaluate(cand.data(), (int)cand.size(),
+                                               tmpl.data(), (int)tmpl.size());
+                    lastScore_ = std::max(lastScore_, sc);
+                    if (lastScore_ >= 99.5f) break;
+                }
+                if (lastScore_ >= 99.5f) break;
+            }
+            if (lastScore_ >= 99.5f) break;
+        } while (std::next_permutation(perm.begin(), perm.end()));
+    } else {
+        // Fallback for >4 strokes: evaluate in drawn order (and reversed if permitted)
+        std::vector<Point> cand;
+        for (const Stroke& s : validStrokes) cand.insert(cand.end(), s.begin(), s.end());
+        for (const auto& tmpl : tmpls) {
+            lastScore_ = std::max(lastScore_, stroke_evaluate(cand.data(), (int)cand.size(),
+                                                              tmpl.data(), (int)tmpl.size()));
+        }
+        if (!isDigit || isEight) {
+            cand.clear();
+            for (auto it = validStrokes.rbegin(); it != validStrokes.rend(); ++it) {
+                cand.insert(cand.end(), it->rbegin(), it->rend());
+            }
+            for (const auto& tmpl : tmpls) {
+                lastScore_ = std::max(lastScore_, stroke_evaluate(cand.data(), (int)cand.size(),
+                                                                  tmpl.data(), (int)tmpl.size()));
+            }
+        }
+    }
+
+    // Accuracy grading curve:
+    // Stricter for numbers (0-7, 9) to require closer adherence to the guide.
+    // More lenient for number 8 due to complex figure-8 crossing.
+    if (isDigit) {
+        if (isEight) {
+            // More lenient: boost wobbly figure-8 curves
+            lastScore_ = std::pow(lastScore_ / 100.0f, 0.6f) * 100.0f;
+        } else {
+            // Stricter: require tighter tracing for digits
+            lastScore_ = std::pow(lastScore_ / 100.0f, 1.22f) * 100.0f;
+        }
+        lastScore_ = std::clamp(lastScore_, 0.0f, 100.0f);
     }
 
     if (lastScore_ >= best_[symbol_]) saveSnapshot();   // best photo goes in the album
@@ -481,7 +584,11 @@ void App::rebuildGuide() {
     const float offsets[] = {0, 45, -45, 90, -90, 135, -135, 180};
     for (size_t i = 0; i < strokes.size(); ++i) {
         Point a = strokes[i][0], d = dirs[i];
-        float base = std::atan2(-d.y, -d.x);           // prefer "behind" the start
+        // For downward/diagonal strokes, place the badge towards the side the stroke goes,
+        // so badges sharing an apex/corner (like A or 4) don't cross over each other.
+        float base = (d.y > 0.3f && std::fabs(d.x) > 0.15f)
+                         ? std::atan2(-std::fabs(d.y), d.x)
+                         : std::atan2(-d.y, -d.x);
         Point bestC = a;
         float bestScore = -1e9f;
         for (float dist : {r + bandHalf + 6 * k, r + bandHalf + 22 * k, r + bandHalf + 40 * k}) {
