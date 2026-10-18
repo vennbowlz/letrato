@@ -1,4 +1,4 @@
-# LetraTo — starter code
+# LetraTo
 
 A desktop handwriting-tracing tool for A–Z and 0–9 that teaches mouse control.
 The name joins *letra* (letter) and *litrato* (Filipino for "photograph"): every traced letter is a
@@ -69,22 +69,32 @@ make CROSS=i686-w64-mingw32- SDL2_DIR=/path/to/SDL2-2.30.x/i686-w64-mingw32
 Off-centre drawing lowers the score because rotation keeps each centroid in place and the
 template sits at a fixed position on the canvas.
 
-## Two design decisions to review
+## Design Notes
 
 - **"Interrupt routines" on Windows.** User-mode Win32 programs cannot install hardware or
   INT 33h mouse handlers (that's DOS-era). The closest faithful equivalent is used here:
   `sample_isr` is constant-time, allocation-free, and is invoked synchronously from the
-  input pump through an SDL event watch rather than from the render loop. Worth phrasing
-  this way in the paper.
-- **Rotation is limited to ±22.5°.** Classic $1 rotates both paths to angle 0, which makes a
-  letter drawn *backwards* score 100% — that defeats the "stroke directionality" objective.
-  The candidate is therefore rotated toward the template's indicative angle, with the
-  correction clamped to π/8 (`k_max_tilt` in `stroke.asm`). Slight tilt is forgiven;
-  reversed or wrong-start strokes are not. The unit tests cover both cases.
-
-## Tuning points
-
-- `kInkWidth`, `kGuideWidth` — `src/main.cpp`
-- Star thresholds (85 / 65 / 40) — `starsFor()` in `src/main.cpp`
-- Stroke order and direction per symbol, and accepted alternatives — `src/glyphs.cpp`
-- Rotation tolerance — `k_max_tilt` in `asm/stroke.asm`
+  input pump through an SDL event watch rather than from the render loop. The paper should
+  describe it as an *interrupt-style* sampling routine.
+- **Rotation is limited to ±22.5°.** Classic $1 rotates both paths to angle 0, so a stroke
+  drawn backwards can be rotated into a perfect match. The candidate is instead rotated
+  toward the template's indicative angle, with the correction clamped to π/8 (`k_max_tilt`
+  in `stroke.asm`). Inside `stroke_evaluate`, slight tilt is forgiven but reversed or
+  wrong-start strokes are not; the backend unit tests cover both cases.
+- **Stroke order and direction are relaxed in the frontend.** Before scoring, `evaluate()`
+  in `src/main.cpp` drops strokes shorter than 3 px, then tests every order of up to 4
+  strokes against every variant in `glyphVariants()` and keeps the best score (attempts
+  with more than 4 strokes are tested in drawn order and fully reversed). For letters and
+  for 8, each stroke is also tested reversed, so stroke direction is **not** enforced for
+  those symbols. Digits 0–7 and 9 keep strict direction. These frontend rules are not
+  covered by the unit tests. The stroke order and direction of each symbol, and its
+  accepted alternatives, are defined in `src/glyphs.cpp`.
+- **8 accepts more ways of writing it.** Its templates are also tested mirrored, and
+  closed-loop templates are tested from 16 different starting points.
+- **Digits use a grading curve.** After the best score is found, digits are adjusted with
+  `score = 100 × (score / 100)^k`: k = 1.22 (stricter) for 0–7 and 9, k = 0.6 (more lenient)
+  for 8. Letters are not adjusted.
+- **Stars are awarded at 85 / 65 / 40.** A score of 85 or more earns 3 stars, 65 earns 2,
+  and 40 earns 1 (`starsFor()` in `src/main.cpp`).
+- **Ink and guide widths.** The child's ink is drawn 14 px wide and the guide band 38 px
+  wide (`kInkWidth`, `kGuideWidth` in `src/main.cpp`).
