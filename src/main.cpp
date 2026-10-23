@@ -117,7 +117,7 @@ private:
     void renderResult();
     void renderButtons();
     void renderPhotoFrame(const SDL_FRect& r, float bottom);
-    void saveSnapshot();
+    void saveSnapshot(const std::vector<Stroke>& strks);
     void dropSnapshots();
     void rebuildSnapshot(int idx);
     void rebuildAllSnapshots();
@@ -228,19 +228,11 @@ bool App::init() {
     return true;
 }
 
-void App::saveSnapshot() {
-    bestStrokes_[symbol_] = strokes_;
-    SDL_Texture*& t = snaps_[symbol_];
-    if (!t) {
-        t = SDL_CreateTexture(ren_, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET, 160, 160);
-        if (!t) return;
-        SDL_SetTextureBlendMode(t, SDL_BLENDMODE_BLEND);
+void App::saveSnapshot(const std::vector<Stroke>& strks) {
+    if (!strks.empty()) {
+        bestStrokes_[symbol_] = strks;
     }
-    SDL_SetRenderTarget(ren_, t);
-    SDL_SetRenderDrawColor(ren_, 0, 0, 0, 0);
-    SDL_RenderClear(ren_);
-    SDL_RenderCopy(ren_, inkTex_, nullptr, nullptr);
-    SDL_SetRenderTarget(ren_, nullptr);
+    rebuildSnapshot(symbol_);
 }
 
 void App::rebuildSnapshot(int idx) {
@@ -351,14 +343,17 @@ void App::loadScores() {
         return true;
     };
 
-    bool found = readFrom("scores.dat");
+    bool found = false;
     char* bp = SDL_GetBasePath();
     if (bp) {
         std::string bpPath = std::string(bp) + "scores.dat";
         SDL_free(bp);
-        if (bpPath != "scores.dat") {
-            readFrom(bpPath);
+        if (std::ifstream(bpPath).good()) {
+            found = readFrom(bpPath);
         }
+    }
+    if (!found && std::ifstream("scores.dat").good()) {
+        found = readFrom("scores.dat");
     }
     if (!found) {
         readFrom("highscore.dat");
@@ -431,6 +426,7 @@ void App::run() {
 void App::showMenu() {
     screen_ = Screen::Menu;
     clearCanvas();
+    rebuildAllSnapshots();
     layoutButtons();
 }
 
@@ -565,7 +561,7 @@ void App::evaluate() {
 
     if (lastScore_ >= best_[symbol_]) {
         best_[symbol_] = lastScore_;
-        saveSnapshot();   // best photo goes in the album
+        saveSnapshot(validStrokes);   // best photo goes in the album
     }
     if (lastScore_ > highScore_) highScore_ = lastScore_;
     saveScores();
@@ -795,7 +791,8 @@ void App::handleEvent(const SDL_Event& e) {
 
         case SDL_RENDER_TARGETS_RESET:
         case SDL_RENDER_DEVICE_RESET:                 // GPU lost our textures
-            dropSnapshots();                          // album photos can't be recovered
+            dropSnapshots();
+            rebuildAllSnapshots();
             if (screen_ != Screen::Menu) { rebuildGuide(); redrawAllInk(); }
             break;
 
@@ -926,6 +923,9 @@ void App::renderMenu() {
         SDL_FRect photo{t.x + kPhotoInset, t.y + kPhotoInset, t.w - 2 * kPhotoInset, kPhotoH};
         draw::roundRect(ren_, photo, 3, c);
         std::string sym(1, kSymbols[i]);
+        if (!snaps_[i] && !bestStrokes_[i].empty()) {
+            rebuildSnapshot(i);
+        }
         if (snaps_[i]) {                              // the child's own best tracing
             draw::textCentered(ren_, sym, photo.x + photo.w / 2, photo.y + 14, 44, darker(c, 0.88f), 0.15f);
             SDL_FRect img{photo.x + (photo.w - kPhotoH) / 2, photo.y, kPhotoH, kPhotoH};
