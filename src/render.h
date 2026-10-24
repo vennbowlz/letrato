@@ -25,6 +25,8 @@ void tape(SDL_Renderer* r, float cx, float cy, float w, float h, float deg, Colo
 void camera(SDL_Renderer* r, float cx, float cy, float w, Color body, Color lens);
 // Viewfinder corner brackets just inside `rect`.
 void viewfinder(SDL_Renderer* r, const SDL_FRect& rect, float inset, float arm, float width, Color c);
+// Gear pictogram for settings button.
+void gear(SDL_Renderer* r, float cx, float cy, float radius, Color c);
 
 // Text drawn with the template glyphs as a stroke font.
 // `h` is the cap height in pixels; returns the drawn width.

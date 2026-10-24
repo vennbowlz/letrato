@@ -22,7 +22,7 @@ else
 endif
 
 CXXFLAGS = -std=c++17 -O2 -Wall -Wextra -m32 $(SDL_CFLAGS)
-SRCS     := src/main.cpp src/glyphs.cpp src/render.cpp src/audio.cpp
+SRCS     := src/main.cpp src/glyphs.cpp src/pictures.cpp src/render.cpp src/audio.cpp
 OBJS     := $(SRCS:src/%.cpp=$(BUILD)/%.o)
 
 all: $(BUILD)/LetraTo.exe

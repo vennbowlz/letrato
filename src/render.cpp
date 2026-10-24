@@ -2,6 +2,7 @@
 #include "render.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 
 namespace {
@@ -124,11 +125,22 @@ void viewfinder(SDL_Renderer* r, const SDL_FRect& q, float inset, float arm, flo
     polyline(r, {{x1 - arm, y1}, {x1, y1}, {x1, y1 - arm}}, width, c);
 }
 
+void gear(SDL_Renderer* r, float cx, float cy, float radius, Color c) {
+    disc(r, cx, cy, radius, c);
+    for (int i = 0; i < 8; ++i) {
+        float a = i * (kPi / 4.0f);
+        float tx = cx + std::cos(a) * radius * 0.96f;
+        float ty = cy + std::sin(a) * radius * 0.96f;
+        disc(r, tx, ty, radius * 0.32f, c);
+    }
+    disc(r, cx, cy, radius * 0.44f, {255, 255, 255, 255});
+}
+
 float textWidth(const std::string& s, float h) {
     float w = 0, gap = 0.24f * h;
     for (size_t i = 0; i < s.size(); ++i) {
         float mn, mx;
-        glyphExtent(s[i], mn, mx);
+        glyphExtent((char)std::toupper((unsigned char)s[i]), mn, mx);
         w += (mx - mn) * h + (i + 1 < s.size() ? gap : 0);
     }
     return w;
@@ -138,9 +150,10 @@ float text(SDL_Renderer* r, const std::string& s, float x, float y, float h, Col
            float weight) {
     float pen = x, gap = 0.24f * h, width = std::max(2.0f, h * weight);
     for (char ch : s) {
+        char upper = (char)std::toupper((unsigned char)ch);
         float mn, mx;
-        glyphExtent(ch, mn, mx);
-        for (const Stroke& st : glyphFor(ch)) {
+        glyphExtent(upper, mn, mx);
+        for (const Stroke& st : glyphFor(upper)) {
             std::vector<Point> pts;
             pts.reserve(st.size());
             for (const Point& p : st) pts.push_back({pen + (p.x - mn) * h, y + p.y * h});
