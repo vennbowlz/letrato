@@ -13,8 +13,11 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cmath>
+#include <fstream>
 #include <numeric>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -114,8 +117,12 @@ private:
     void renderResult();
     void renderButtons();
     void renderPhotoFrame(const SDL_FRect& r, float bottom);
-    void saveSnapshot();
+    void saveSnapshot(const std::vector<Stroke>& strks);
     void dropSnapshots();
+    void rebuildSnapshot(int idx);
+    void rebuildAllSnapshots();
+    void loadScores();
+    void saveScores();
 
     SDL_Window* win_ = nullptr;
     SDL_Renderer* ren_ = nullptr;
@@ -132,6 +139,8 @@ private:
     bool draggingSlider_ = false;
     float mouseX_ = 0, mouseY_ = 0;
     std::array<float, 36> best_{};
+    std::array<std::vector<Stroke>, 36> bestStrokes_{};
+    float highScore_ = 0.0f;
     std::vector<Button> buttons_;
     int hoverTile_ = -1;
 
@@ -211,14 +220,24 @@ bool App::init() {
 
     if (!audio_.open()) SDL_Log("audio unavailable: %s", SDL_GetError());
     best_.fill(-1);
+    loadScores();
+    rebuildAllSnapshots();
 
     SDL_AddEventWatch(samplingHook, this);   // after the renderer's own watch
     showMenu();
     return true;
 }
 
-void App::saveSnapshot() {
-    SDL_Texture*& t = snaps_[symbol_];
+void App::saveSnapshot(const std::vector<Stroke>& strks) {
+    if (!strks.empty()) {
+        bestStrokes_[symbol_] = strks;
+    }
+    rebuildSnapshot(symbol_);
+}
+
+void App::rebuildSnapshot(int idx) {
+    if (idx < 0 || idx >= 36 || bestStrokes_[idx].empty()) return;
+    SDL_Texture*& t = snaps_[idx];
     if (!t) {
         t = SDL_CreateTexture(ren_, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET, 160, 160);
         if (!t) return;
@@ -227,8 +246,22 @@ void App::saveSnapshot() {
     SDL_SetRenderTarget(ren_, t);
     SDL_SetRenderDrawColor(ren_, 0, 0, 0, 0);
     SDL_RenderClear(ren_);
-    SDL_RenderCopy(ren_, inkTex_, nullptr, nullptr);
+    float scale = 160.0f / kCanvasS;
+    for (const Stroke& s : bestStrokes_[idx]) {
+        std::vector<Point> pts;
+        pts.reserve(s.size());
+        for (const Point& p : s) {
+            pts.push_back({p.x * scale, p.y * scale});
+        }
+        draw::polyline(ren_, pts, kInkWidth * scale, kInk);
+    }
     SDL_SetRenderTarget(ren_, nullptr);
+}
+
+void App::rebuildAllSnapshots() {
+    for (int i = 0; i < 36; ++i) {
+        rebuildSnapshot(i);
+    }
 }
 
 void App::dropSnapshots() {
@@ -236,7 +269,131 @@ void App::dropSnapshots() {
         if (t) { SDL_DestroyTexture(t); t = nullptr; }
 }
 
+void App::loadScores() {
+    highScore_ = 0.0f;
+    for (auto& s : bestStrokes_) s.clear();
+    auto readFrom = [this](const std::string& path) {
+        std::ifstream in(path);
+        if (!in.is_open()) return false;
+        std::string line;
+        while (std::getline(in, line)) {
+            if (!line.empty() && line.back() == '\r') line.pop_back();
+            if (line.empty()) continue;
+            std::istringstream iss(line);
+            std::string key;
+            if (!(iss >> key)) continue;
+            std::string upperKey = key;
+            for (char& c : upperKey) c = (char)std::toupper((unsigned char)c);
+            if (!upperKey.empty() && (upperKey.back() == ':' || upperKey.back() == '=')) {
+                upperKey.pop_back();
+            }
+            if (upperKey == "HIGH_SCORE" || upperKey == "HIGHSCORE" || upperKey == "BEST" || upperKey == "SCORE") {
+                float val = 0.0f;
+                if (iss >> val && std::isfinite(val) && val >= 0.0f && val <= 100.0f) {
+                    highScore_ = std::max(highScore_, val);
+                }
+            } else if (upperKey == "SNAP" || upperKey == "STROKES") {
+                char sym;
+                int nStrokes = 0;
+                if (iss >> sym >> nStrokes && nStrokes > 0 && nStrokes <= 128) {
+                    size_t idx = kSymbols.find(sym);
+                    if (idx != std::string::npos && idx < bestStrokes_.size()) {
+                        bestStrokes_[idx].clear();
+                        for (int s = 0; s < nStrokes; ++s) {
+                            if (!std::getline(in, line)) break;
+                            if (!line.empty() && line.back() == '\r') line.pop_back();
+                            std::istringstream sline(line);
+                            int nPts = 0;
+                            if (sline >> nPts && nPts > 0 && nPts <= 4096) {
+                                Stroke strk;
+                                strk.reserve(nPts);
+                                for (int p = 0; p < nPts; ++p) {
+                                    float x, y;
+                                    if (sline >> x >> y) strk.push_back({x, y});
+                                }
+                                if (!strk.empty()) bestStrokes_[idx].push_back(strk);
+                            }
+                        }
+                    }
+                }
+            } else if (key.size() == 1) {
+                char sym = key[0];
+                size_t idx = kSymbols.find(sym);
+                if (idx != std::string::npos && idx < best_.size()) {
+                    float val = -1.0f;
+                    if (iss >> val && std::isfinite(val)) {
+                        if (val >= 0.0f && val <= 100.0f) {
+                            best_[idx] = val;
+                            highScore_ = std::max(highScore_, val);
+                        } else if (val < 0.0f) {
+                            best_[idx] = -1.0f;
+                        }
+                    }
+                }
+            } else {
+                try {
+                    size_t pos = 0;
+                    float val = std::stof(key, &pos);
+                    if (pos > 0 && std::isfinite(val) && val >= 0.0f && val <= 100.0f) {
+                        highScore_ = std::max(highScore_, val);
+                    }
+                } catch (...) {}
+            }
+        }
+        return true;
+    };
+
+    bool found = false;
+    char* bp = SDL_GetBasePath();
+    if (bp) {
+        std::string bpPath = std::string(bp) + "scores.dat";
+        SDL_free(bp);
+        if (std::ifstream(bpPath).good()) {
+            found = readFrom(bpPath);
+        }
+    }
+    if (!found && std::ifstream("scores.dat").good()) {
+        found = readFrom("scores.dat");
+    }
+    if (!found) {
+        readFrom("highscore.dat");
+        readFrom("scores.txt");
+    }
+}
+
+void App::saveScores() {
+    auto writeScores = [this](const std::string& path) {
+        std::ofstream out(path);
+        if (!out.is_open()) return;
+        out << "HIGH_SCORE " << highScore_ << "\n";
+        for (size_t i = 0; i < kSymbols.size() && i < best_.size(); ++i) {
+            out << kSymbols[i] << " " << best_[i] << "\n";
+            const auto& strks = bestStrokes_[i];
+            if (!strks.empty()) {
+                out << "SNAP " << kSymbols[i] << " " << strks.size() << "\n";
+                for (const auto& s : strks) {
+                    out << s.size();
+                    for (const auto& pt : s) {
+                        out << " " << (int)std::lround(pt.x) << " " << (int)std::lround(pt.y);
+                    }
+                    out << "\n";
+                }
+            }
+        }
+    };
+    writeScores("scores.dat");
+    char* bp = SDL_GetBasePath();
+    if (bp) {
+        std::string bpPath = std::string(bp) + "scores.dat";
+        SDL_free(bp);
+        if (bpPath != "scores.dat") {
+            writeScores(bpPath);
+        }
+    }
+}
+
 void App::shutdown() {
+    saveScores();
     SDL_DelEventWatch(samplingHook, this);
     dropSnapshots();
     audio_.close();
@@ -269,6 +426,7 @@ void App::run() {
 void App::showMenu() {
     screen_ = Screen::Menu;
     clearCanvas();
+    rebuildAllSnapshots();
     layoutButtons();
 }
 
@@ -401,8 +559,12 @@ void App::evaluate() {
         lastScore_ = std::clamp(lastScore_, 0.0f, 100.0f);
     }
 
-    if (lastScore_ >= best_[symbol_]) saveSnapshot();   // best photo goes in the album
-    best_[symbol_] = std::max(best_[symbol_], lastScore_);
+    if (lastScore_ >= best_[symbol_]) {
+        best_[symbol_] = lastScore_;
+        saveSnapshot(validStrokes);   // best photo goes in the album
+    }
+    if (lastScore_ > highScore_) highScore_ = lastScore_;
+    saveScores();
     snapAt_ = SDL_GetTicks();
     int stars = starsFor(lastScore_);
     audio_.play(stars >= 3 ? Audio::Cue::Great : stars >= 2 ? Audio::Cue::Good : Audio::Cue::TryAgain);
@@ -629,7 +791,8 @@ void App::handleEvent(const SDL_Event& e) {
 
         case SDL_RENDER_TARGETS_RESET:
         case SDL_RENDER_DEVICE_RESET:                 // GPU lost our textures
-            dropSnapshots();                          // album photos can't be recovered
+            dropSnapshots();
+            rebuildAllSnapshots();
             if (screen_ != Screen::Menu) { rebuildGuide(); redrawAllInk(); }
             break;
 
@@ -760,6 +923,9 @@ void App::renderMenu() {
         SDL_FRect photo{t.x + kPhotoInset, t.y + kPhotoInset, t.w - 2 * kPhotoInset, kPhotoH};
         draw::roundRect(ren_, photo, 3, c);
         std::string sym(1, kSymbols[i]);
+        if (!snaps_[i] && !bestStrokes_[i].empty()) {
+            rebuildSnapshot(i);
+        }
         if (snaps_[i]) {                              // the child's own best tracing
             draw::textCentered(ren_, sym, photo.x + photo.w / 2, photo.y + 14, 44, darker(c, 0.88f), 0.15f);
             SDL_FRect img{photo.x + (photo.w - kPhotoH) / 2, photo.y, kPhotoH, kPhotoH};
@@ -797,6 +963,9 @@ void App::renderTrace() {
         draw::textCentered(ren_, "PRESS SNAP WHEN DONE", kCanvasX + kCanvasS / 2, 667, 16, kTextSoft, 0.12f);
 
     renderButtons();
+    float symScore = best_[symbol_];
+    int hsPct = symScore < 0.0f ? 0 : (int)std::lround(symScore);
+    draw::textCentered(ren_, "HIGH SCORE " + std::to_string(hsPct) + "%", 812, 54, 22, kText);
     draw::textCentered(ren_, "GUIDE", 812, 312, 22, kText);
     draw::roundRect(ren_, kTrack, 6, kStarOff);
     float t = guideAlpha_ / 255.0f;
